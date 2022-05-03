@@ -35,6 +35,15 @@
 #include <ArduinoJson.h>      // Nifty JSON library
 #include <CircularBuffer.h>   // Adafruit library for handling circular buffers of data. 
 
+#include <SPI.h> // SPI bus functions to talk to the SD Card
+#include <SD.h>  // SD file handling
+
+#define ADAFRUIT_EINK_SD true // Some Adafruit Eink Displays have an integrated SD card so we don't need a separate module
+#if ADAFRUIT_EINK_SD
+#define SD_CS 14 // SD card chip select
+#else
+#define SD_CS 4
+#endif
 
 // For Over the Air (OTA) updates... 
 #include <AsyncTCP.h>
@@ -131,6 +140,7 @@ void configureOTA();
 // Load/Save Defaults
 void loadParameters();
 void saveParameters();
+bool initSDCard();
 
 // Bluetooth Counter Communication
 bool   startCounterBluetooth(BluetoothSerial &btUART, String counter); //Turns on Bluetooth Serial and connects to counter
@@ -162,15 +172,15 @@ void setup(){
   configureIO();
 
   //useOTA = ( digitalRead(CTR_RESET) == LOW ); // Button low at boot = AP mode
-
   //useOTA = true; //DEBUG
-  //DEBUG_PRINT("USE OTA: ");
-  DEBUG_PRINTLN(useOTA);
+  //DEBUG_PRINT("  USE OTA: ");
+  //DEBUG_PRINTLN(useOTA);
   
-  loadParameters();
   showSplashScreen();
-  
+  loadParameters();
+
   configureDisplay();
+  
   accessPointModeCheck();
   delay(1000); // give the human a sec to take their finger off the button.
   
@@ -180,8 +190,6 @@ void setup(){
   textToDisplay2 = "Known Locations";
   
   configureEinkManagerTask();
-  
-  
   
   configureRTC();
   configureWiFi();
@@ -197,6 +205,8 @@ void setup(){
     sendReceive(btUART1, "g",0); // Get a value
     sendReceive(btUART1, "c",0); // Clear the counter    
   }
+
+
   
   
   DEBUG_PRINTLN();
@@ -397,47 +407,42 @@ void deliverRouteReport(){
   DEBUG_PRINTLN(reportToIssue);
 
 
-  // TODO: Think about this. If the post fails, all the data we collected is lost! 
-  // Add a retry and a save to SPIFFS backup for later delivery. 
+
+  // Check if we've previously saved a report to SPIFFs because of some problem. 
+  // I'd like to use the SD but currently (4/3/23) having issues using the SD and 
+  // bluetooth classic at the same time.
+
+  
+  if (SPIFFS.exists("/report.txt")){
+     DEBUG_PRINTLN("Old file exists. Try to POST to server...");
+
+     String previousReport = readFile(SPIFFS, "/report.txt");
+     postSuccessful = postJSON(previousReport, networkConfig);
+ 
+     if (postSuccessful){
+       DEBUG_PRINTLN("POST successful. Deleting backup.");
+       deleteFile(SPIFFS, "/report.txt");  
+     }else{
+       DEBUG_PRINTLN("Trouble POSTing old data. Keeping backup.");
+       //leave the file on SPIFFs 
+     }               
+  }
+ 
   postSuccessful = postJSON(reportToIssue, networkConfig);
 
   if (postSuccessful) {
     DEBUG_PRINTLN("Success!");
     DEBUG_PRINTLN();
+  }else{
+    DEBUG_PRINTLN("POST failed. Saving to SPIFFS.");
+    writeFile(SPIFFS,"/report.txt",reportToIssue.c_str());
   }
-
-
-/*
-  while (shuttleStops.size() > 0){ 
-    DEBUG_PRINT("Buffer Size: ");
-    DEBUG_PRINTLN(shuttleStops.size());
-  
-    String activeShuttleStop = String(shuttleStops.first()->c_str()); // Read from the buffer without removing the data from it.
-    DEBUG_PRINTLN(activeShuttleStop);
-    reportToIssue += activeShuttleStop;
-    //if (shuttleStops.size>1) reportToIssue += ","
-    reportToIssue += "]}";
-
-    DEBUG_PRINTLN(reportToIssue);
-  
-    postSuccessful = postJSON(reportToIssue, networkConfig);
-
-    if (postSuccessful) {
-      String  * entry = shuttleStops.shift();
-      delete entry;
-      DEBUG_PRINTLN("Success!");
-      DEBUG_PRINTLN();
-    }
-
-  }
-*/
 
   titleToDisplay = "Rept'g Hub";
   textToDisplay1 = "Complete.";
   textToDisplay2 = "";
   delay(2000); // Give folks a sec to read the update.
  
-   
 }
 
 //****************************************************************************************
@@ -472,7 +477,7 @@ void processLocationChange(ShuttleStop &currentShuttleStop)
 void loadParameters(){
 //****************************************************************************************
   StaticJsonDocument<2048> doc;  
-  //DEBUG_PRINTLN("LOADING DEFAULT PARAMETERS...");
+  DEBUG_PRINT("  Loading default parameters...");
   
   if(!SPIFFS.begin()){
     DEBUG_PRINTLN("    File System Mount Failed");
@@ -484,7 +489,7 @@ void loadParameters(){
 
     //DEBUG_PRINTLN("    Reading file...");
     temp = readFile(SPIFFS, "/config.txt");
-    DEBUG_PRINTLN(temp);
+    //DEBUG_PRINTLN(temp);
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, temp);
     if (error)
@@ -512,9 +517,11 @@ void loadParameters(){
     
     for (int i=0; i<doc["counterNames"].size(); i++){
       counterNames[i] = String((const char *)doc["counterNames"][i]);
-      DEBUG_PRINTLN(counterNames[i]);
+      //DEBUG_PRINTLN(counterNames[i]);
     }
   }    
+  DEBUG_PRINTLN(" Done.");
+  
 }
 
 //****************************************************************************************
@@ -579,6 +586,43 @@ void saveParameters()
   file.close();
 }
 
+
+//****************************************************************************************
+// See if the card is present and can be initialized.
+//****************************************************************************************
+bool initSDCard()
+{
+
+  Serial.println("  Initializing SD Card at address: ");
+  Serial.print(SD_CS);
+
+  
+  if(!SD.begin(SD_CS)){
+    Serial.println("    Card Mount Failed");
+    return false;
+  }
+  uint8_t cardType = SD.cardType();
+
+  if(cardType == CARD_NONE){
+    Serial.println("    No SD card attached");
+    return false;
+  }
+
+  Serial.print("    SD Card Type: ");
+  if(cardType == CARD_MMC){
+    Serial.println("MMC");
+  } else if(cardType == CARD_SD){
+    Serial.println("SDSC");
+  } else if(cardType == CARD_SDHC){
+    Serial.println("SDHC");
+  } else {
+    Serial.println("UNKNOWN");
+  }
+  uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+  Serial.printf("    SD Card Size: %lluMB\n", cardSize);
+  return true;
+
+}
 
 //***************************************************************************************
 String processor(const String& var)
@@ -710,7 +754,6 @@ void showSplashScreen(){
   DEBUG_PRINTLN(shuttleName);
   DEBUG_PRINTLN("Copyright 2022, Digame Systems. All rights reserved.");
   DEBUG_PRINTLN();
-  DEBUG_PRINTLN("               Hit <ENTER> for Menu"); 
   DEBUG_PRINTLN("*****************************************************");  
   DEBUG_PRINTLN();
   DEBUG_PRINTLN("HARDWARE INITIALIZATION");
@@ -814,6 +857,8 @@ void configureDisplay(){
     display.setRotation(2);  // The shuttle display is 90 off from the normal counter
   }
 
+  showWhite();
+
   
   displayTitles("Parkdata", "Shuttle Bus");
   centerPrint("Passenger", 65);
@@ -846,19 +891,19 @@ void accessPointModeCheck(){
 
   //showWhite();
   
-  DEBUG_PRINT("USE OTA: ");
+  DEBUG_PRINT("  USE OTA: ");
   DEBUG_PRINTLN(useOTA);
   
 }
 
 void configureRTC(){  
-  DEBUG_PRINTLN(" RTC...");
+  //DEBUG_PRINTLN(" RTC...");
   initRTC();
   currentShuttleStop.startTime = getRTCTime();
 }
 
 void configureWiFi(){
-  DEBUG_PRINT(" WiFi... ");
+  DEBUG_PRINT("  WiFi... ");
   // Set WiFi to station mode and disconnect from an AP if it was previously connected
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
@@ -894,7 +939,7 @@ void configureEinkManagerTask(){
 
 
 bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
-  DEBUG_PRINTLN(" Starting Bluetooth");
+  DEBUG_PRINTLN("  Starting Bluetooth");
   btUART.begin("ShuttleBasestationA", true); // Bluetooth device name 
                                             //  TODO: Provide opportunity to change names. 
   delay(100); // Give port time to initalize
@@ -906,7 +951,7 @@ bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
   bool connected = btUART.connect(counter);
   
   if(connected) {
-    DEBUG_PRINTLN("  Success! Awaiting Counts...");
+    DEBUG_PRINTLN("    Success! Awaiting Counts...");
 
     
     //titleToDisplay = "Connected";
@@ -914,7 +959,7 @@ bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
     //textToDisplay2 = "...";
 
   } else {
-    DEBUG_PRINTLN("  Failed to connect."); 
+    DEBUG_PRINTLN("    Failed to connect."); 
     titleToDisplay = "CONNECT";
     textToDisplay1 = "Failed!";
     textToDisplay2 = "";
@@ -931,6 +976,7 @@ bool stopCounterBluetooth(BluetoothSerial &btUART){
   DEBUG_PRINTLN("Stopping Bluetooth");
   if (btUART.connected()){ btUART.disconnect();}
   btUART.end();  
+
   return true;  
 }
 
