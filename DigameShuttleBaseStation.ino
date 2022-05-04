@@ -101,6 +101,9 @@ String counterNames[]     = {"Counter_1234", "Counter_2345"};
 uint8_t counter1Address[] = {0xAC,0x0B,0xFB,0x25,0xC6,0x12};
 uint8_t counter2Address[] = {0xE8,0x68,0xE7,0x30,0xAA,0x0E};
 
+String counterDistanceThreshold = "150";
+String counterSmoothingFactor = "0.6";
+
 String currentLocation  = "En Route"; 
 String previousLocation = "";
 
@@ -168,51 +171,48 @@ void setup(){
 
   mutex_v = xSemaphoreCreateMutex(); // The mutex we will use to protect variables 
                                      // across tasks
-
   configureIO();
 
-  //useOTA = ( digitalRead(CTR_RESET) == LOW ); // Button low at boot = AP mode
-  //useOTA = true; //DEBUG
-  //DEBUG_PRINT("  USE OTA: ");
-  //DEBUG_PRINTLN(useOTA);
-  
   showSplashScreen();
   loadParameters();
-
   configureDisplay();
-  
   accessPointModeCheck();
   delay(1000); // give the human a sec to take their finger off the button.
-  
   
   titleToDisplay = "Scanning";
   textToDisplay1 = "For";
   textToDisplay2 = "Known Locations";
   
   configureEinkManagerTask();
-  
   configureRTC();
   configureWiFi();
 
   if (useOTA){
     configureOTA();
   } else {
+     // Setup our counter.
     startCounterBluetooth(btUART1,counterNames[0]);
     resetShuttleStop(currentShuttleStop);
     
-    // Setup our counter. 
-    sendReceive(btUART1, "-",0); // Turn off the menu system
+    DEBUG_PRINTLN("  Configuring Counter...");
+    sendReceive(btUART1, "-",0); // Turn off the menu system  
+    sendReceive(btUART1, "n",0); // Set the counter's name
+    sendReceive(btUART1, counterNames[0],0); // Set the counter's name  
+    sendReceive(btUART1, "d",0); // Set the distance threshold
+    sendReceive(btUART1, counterDistanceThreshold,0); // Set the distance threshold  
+    sendReceive(btUART1, "s",0); // Set the smoothing factor
+    sendReceive(btUART1, counterSmoothingFactor,0); // Set the smoothing factor 
     sendReceive(btUART1, "g",0); // Get a value
     sendReceive(btUART1, "c",0); // Clear the counter    
+    DEBUG_PRINTLN("  Done.");
   }
-
-
-  
   
   DEBUG_PRINTLN();
   DEBUG_PRINTLN("RUNNING!");
-  DEBUG_PRINT("mainLoop Running on Core #: ");
-  DEBUG_PRINTLN(xPortGetCoreID());
+  DEBUG_PRINTLN();
+  DEBUG_PRINT("  (Main loop running on Core #: ");
+  DEBUG_PRINT(xPortGetCoreID());
+  DEBUG_PRINTLN(")");
   DEBUG_PRINTLN();
 }
 
@@ -245,11 +245,12 @@ void loop(){
     
     // Scan for known SSIDs.
     if ((t2-t1) > networkScanInterval){
+      DEBUG_PRINTLN("Location Scan...");
       stopCounterBluetooth(btUART1); //Try turning off bluetooth before doing WiFi things. -- Crashing issues...
       currentLocation  = scanForKnownLocations(knownLocations, NUMITEMS(knownLocations));
       startCounterBluetooth(btUART1, counterNames[0]); // Turn it back on and reconnect to counter
       displayUpdateNeeded = true;
-      DEBUG_PRINTLN("Previous Location: " + previousLocation + " Current Location: " + currentLocation);
+      DEBUG_PRINTLN("Previous Location: " + previousLocation + ", Current Location: " + currentLocation);
       t1=millis(); 
     }
   
@@ -265,8 +266,6 @@ void loop(){
       counterStats = sendReceive(btUART1, "c",0); // Clear the counter
       resetShuttleStop(currentShuttleStop);
   
-      //titleToDisplay = "LOCATION";
-      //textToDisplay1 = "\n " + currentLocation + "\n\n Awaiting Counts...";
     }
    
     // Poll the counters.
@@ -474,54 +473,68 @@ void processLocationChange(ShuttleStop &currentShuttleStop)
 // IO Routines
 
 //****************************************************************************************
-void loadParameters(){
+// Pull in program settings from a JSON formatted text file.
 //****************************************************************************************
-  StaticJsonDocument<2048> doc;  
-  DEBUG_PRINT("  Loading default parameters...");
+void loadParameters()
+{
+  StaticJsonDocument<3048> doc;  
+ 
+  DEBUG_PRINTLN("  Loading default parameters...");
   
   if(!SPIFFS.begin()){
-    DEBUG_PRINTLN("    File System Mount Failed");
+    DEBUG_PRINTLN("    File System Mount Failed! Halting...");
     while (1) {} // Halt and spin...
   
   } else {
-    //DEBUG_PRINTLN("    SPIFFS up!");
+    
     String temp;
 
-    //DEBUG_PRINTLN("    Reading file...");
-    temp = readFile(SPIFFS, "/config.txt");
+    temp = readFile(SPIFFS, "/config.txt"); // Pull in JSON string
+    //DEBUG_PRINTLN("****");
     //DEBUG_PRINTLN(temp);
+    //DEBUG_PRINTLN("****");
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, temp);
+    
     if (error)
     {
-      Serial.println(F("    Failed to parse file, using default configuration"));
+      Serial.println(F("    Failed to parse file, using default configuration."));
       return;
     } 
-    //DEBUG_PRINTLN((const char *)doc["shuttleName"]);  
+     
     shuttleName               = (const char *)doc["shuttleName"];
     routeName                 = (const char *)doc["routeName"];
+
+    counterDistanceThreshold  = (const char *)doc["counterDistanceThreshold"];
+    counterSmoothingFactor    = (const char *)doc["counterSmoothingFactor"];
+     
     reportingLocation         = (const char *)doc["reportingLocation"];
     reportingLocationPassword = (const char *)doc["reportingLocationPassword"];
 
+    for (int i=0; i<doc["counterNames"].size(); i++){
+      counterNames[i] = String((const char *)doc["counterNames"][i]);
+    }
+
+    DEBUG_PRINTLN("    Shuttle Name:       " + shuttleName);
+    DEBUG_PRINTLN("    Route Name:         " + routeName);
+    DEBUG_PRINTLN("    Counter (CTR) ID:   " + counterNames[0]);
+    DEBUG_PRINTLN("    CTR Dist Thresh:    " + counterDistanceThreshold);
+    DEBUG_PRINTLN("    CTR Smooth Factr:   " + counterSmoothingFactor);
+    DEBUG_PRINTLN("    Reporting Location: " + reportingLocation);
     
     networkConfig.ssid      = reportingLocation;
     networkConfig.password  = reportingLocationPassword;
     networkConfig.serverURL = "http://199.21.201.53/trailwaze/zion/lidar_shuttle_import.php";
     
-    //DEBUG_PRINTLN(doc["knownLocations"].size());
-    
+    DEBUG_PRINTLN("    Shuttle Stops:      ");
     for (int i=0; i<doc["knownLocations"].size(); i++){
       knownLocations[i] = String((const char *)doc["knownLocations"][i]);
-      //DEBUG_PRINTLN(knownLocations[i]);
+      DEBUG_PRINTLN("      Stop " + String(i+1) + ":   " + String(knownLocations[i]));
     }
     
-    for (int i=0; i<doc["counterNames"].size(); i++){
-      counterNames[i] = String((const char *)doc["counterNames"][i]);
-      //DEBUG_PRINTLN(counterNames[i]);
-    }
+    
   }    
-  DEBUG_PRINTLN(" Done.");
-  
+   
 }
 
 //****************************************************************************************
@@ -549,13 +562,18 @@ void saveParameters()
   // Allocate a temporary JsonDocument
   // Don't forget to change the capacity to match your requirements.
   // Use https://arduinojson.org/assistant to compute the capacity.
-  StaticJsonDocument<2048> doc;
+  StaticJsonDocument<3048> doc;
 
   // Copy values from the Config struct to the JsonDocument
   doc["routeName"] = routeName;
   doc["shuttleName"] = shuttleName;
+
+  doc["counterDistanceThreshold"] = counterDistanceThreshold;
+  doc["counterSmoothingFactor"] = counterSmoothingFactor;
+  
   doc["reportingLocation"] = reportingLocation;
   doc["reportingLocationPassword"] = reportingLocationPassword;
+  
   doc["counterNames"][0] = counterNames[0];
   doc["counterNames"][1] = counterNames[1];
 
@@ -631,7 +649,12 @@ String processor(const String& var)
 
   if(var == "config.deviceName") return F(shuttleName.c_str()); 
   if(var == "baseStationName") return F(shuttleName.c_str()); 
+  
   if(var == "counterName") return F(counterNames[0].c_str()); 
+  
+  if(var == "distanceThreshold") return F(counterDistanceThreshold.c_str()); 
+  if(var == "smoothingFactor") return F(counterSmoothingFactor.c_str()); 
+  
   if(var == "reportingLocation") return F(reportingLocation.c_str()); 
   if(var == "password") return F(reportingLocationPassword.c_str()); 
   if(var == "stop1") return F(knownLocations[0].c_str()); 
@@ -670,21 +693,21 @@ void processQueryParam(AsyncWebServerRequest *request, String qParam, String *ta
     if(request->hasParam(qParam)){
       //debugUART.println("found");
       AsyncWebParameter* p = request->getParam(qParam);
-
+      
       debugUART.print(p->value());
       debugUART.print(" ");
       debugUART.println(String(p->value()).length());
-
 
       if (String(p->value()).length() == 0) {
         //debugUART.println("*******BLANK ENTRY!*******");
         //debgugUART.println("...ignoring...");
       
       } else{
-        *targetParam = String(p->value().c_str());
-        targetParam->replace("%","_"); // Replace the template character. 
-                                     // 'Might cause problems w/ some Passwords...
-                                     // TODO: Think on this. Make '%' illegal in PW? 
+        *targetParam = String(p->value().c_str()); 
+        targetParam->replace("%","_"); // Replace the template character 
+                                       // Might cause problems w/ some Passwords...
+                                       // TODO: Think on this. Make '%' illegal in PW? 
+        targetParam->trim();           // Tidy
       }
     }
 }
@@ -695,7 +718,6 @@ void configureOTA(){
 
   DEBUG_PRINTLN("  Stand-Alone Mode. Setting AP (Access Point)…");  
   WiFi.mode(WIFI_AP);
-  
   String netName = "BaseStation_" + getShortMACAddress();
   const char* ssid = netName.c_str();
   WiFi.softAP(ssid);
@@ -724,6 +746,9 @@ void configureOTA(){
     processQueryParam(request, "baseName", &shuttleName);
     processQueryParam(request, "countName", &counterNames[0]);
 
+    processQueryParam(request, "distThreshold", &counterDistanceThreshold);
+    processQueryParam(request, "smoothFactor", &counterSmoothingFactor);
+    
     processQueryParam(request, "reptLocation", &reportingLocation);
     processQueryParam(request, "password", &reportingLocationPassword);
 
@@ -750,8 +775,6 @@ void showSplashScreen(){
   DEBUG_PRINTLN("*****************************************************");
   DEBUG_PRINTLN("ParkData Shuttle Counter Base Station");
   DEBUG_PRINTLN("Version 1.0");
-  DEBUG_PRINT("Device Name: ");
-  DEBUG_PRINTLN(shuttleName);
   DEBUG_PRINTLN("Copyright 2022, Digame Systems. All rights reserved.");
   DEBUG_PRINTLN();
   DEBUG_PRINTLN("*****************************************************");  
@@ -791,7 +814,7 @@ void showCountDisplay(ShuttleStop &shuttleStop){
 //****************************************************************************************
 // Scans to see if we are at a known location. This version uses WiFi networks. 
 // Here, we return the strongest known SSID we can see. If we don't see any, we return
-// "UNK HH:MM:SS"
+// "En Route"
 //****************************************************************************************
 String scanForKnownLocations(String knownLocations[], int arraySize){
 
@@ -800,37 +823,39 @@ String scanForKnownLocations(String knownLocations[], int arraySize){
   
   String retValue = "En Route"; //\n   " + String(strTime);
 
-  for (int attempts = 0; attempts < 3; attempts++){ // scan for known networks up to n times...
-    DEBUG_PRINTLN("Scanning... Attempts = " + String(attempts));
+  for (int attempts = 1; attempts < 2; attempts++){ // scan for known networks up to n times...
+    DEBUG_PRINTLN("  Scanning WiFi... Attempt = " + String(attempts));
     
     // WiFi.scanNetworks will return the number of networks found
-    int n = WiFi.scanNetworks();
+    int n = WiFi.scanNetworks();   
   
     if (n == 0) {
-      DEBUG_PRINTLN(" No networks found.");
+      DEBUG_PRINTLN("  No networks found.");
     } else {
       for (int i = 0; i < n; ++i) {
         // Return the first match to our known SSID list -- Return values are ordered by RSSI
         
         if (WiFi.SSID(i) == reportingLocation.c_str()){
-          DEBUG_PRINTLN(" At the Reporting Location.");
-          networkScanInterval = 30000; // Longer scan interval when we are at a know location.
+          DEBUG_PRINT(" At the Reporting Location: ");
+          DEBUG_PRINTLN(reportingLocation);
+          //networkScanInterval = 30000; // Longer scan interval when we are at a known location.
           return reportingLocation;  
         }     
         
         for (int j = 0; (j<arraySize); j++){
           if (WiFi.SSID(i) == knownLocations[j].c_str()){
             retValue = knownLocations[j];
-            networkScanInterval = 30000; // Longer scan interval when we are at a know location.
+            DEBUG_PRINT(" At Known Location: ");
+            DEBUG_PRINTLN(retValue);
+            //networkScanInterval = 30000; // Longer scan interval when we are at a know location.
             return retValue; // If we find a known network, return it and exit.
           }
         }       
       }
     }
   }
-  DEBUG_PRINTLN("*******************************************");
-  DEBUG_PRINTLN("No Known Networks found!");
-  networkScanInterval = 15000; // Short Scan time when we are not at a known location.
+  DEBUG_PRINTLN("  No known networks found. (En Route)");
+  networkScanInterval = 10000; // Short Scan time when we are not at a known location.
   return retValue; // Return the "unknown" location
 }
 
@@ -871,6 +896,8 @@ void configureDisplay(){
 void accessPointModeCheck(){
  
   //initDisplay();
+
+  DEBUG_PRINTLN("  Access point mode check...");
   displayTitles("Acc. Point", "Mode Check");
   centerPrint("Press Button", 65);
   centerPrint("To Enter", 85);
@@ -891,8 +918,9 @@ void accessPointModeCheck(){
 
   //showWhite();
   
-  DEBUG_PRINT("  USE OTA: ");
+  DEBUG_PRINT("    Use Access point mode / OTA: ");
   DEBUG_PRINTLN(useOTA);
+  DEBUG_PRINTLN("  Done.");
   
 }
 
@@ -951,7 +979,7 @@ bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
   bool connected = btUART.connect(counter);
   
   if(connected) {
-    DEBUG_PRINTLN("    Success! Awaiting Counts...");
+    //DEBUG_PRINTLN("    Success! Awaiting Counts...");
 
     
     //titleToDisplay = "Connected";
@@ -973,7 +1001,7 @@ bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
 }
 
 bool stopCounterBluetooth(BluetoothSerial &btUART){
-  DEBUG_PRINTLN("Stopping Bluetooth");
+  DEBUG_PRINTLN("  Stopping Bluetooth");
   if (btUART.connected()){ btUART.disconnect();}
   btUART.end();  
 
@@ -1073,7 +1101,7 @@ String sendReceive(BluetoothSerial &btUART, String stringToSend, int counterID){
     
     if (btUART.available()){
       String junkString = btUART.readString();
-      DEBUG_PRINTLN("Junk: " + junkString);  
+      //DEBUG_PRINTLN("Junk: " + junkString);  
     }
 
     btUART.flush();
@@ -1098,18 +1126,18 @@ String sendReceive(BluetoothSerial &btUART, String stringToSend, int counterID){
       //}
 
       if (btUART.available()){
-        DEBUG_PRINTLN("EXTRA CHARACTERS RECEIVED!");
+        //DEBUG_PRINTLN("EXTRA CHARACTERS RECEIVED!");
       }
        
       inString.trim();
       //DEBUG_PRINTLN("Reply to:  " + stringToSend);
-      DEBUG_PRINTLN(getRTCTime() + " " + inString);
+      DEBUG_PRINTLN("    " + getRTCTime() + " " + inString);
         
     }
     
   
   } else {
-    DEBUG_PRINTLN("Problem connecting to counter.");  
+    DEBUG_PRINTLN("    Problem connecting to counter.");  
   }
 
   unsigned long t4 = millis();

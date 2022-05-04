@@ -14,7 +14,7 @@
 
     <form action="/parameters">
 
-      <H3>Base Station</H3>
+      <H3><br>Base Station</H3>
       <p></p>
       <label for="baseName">Base Station Name</label>
       <input type="text" id="baseName" name="baseName" value="%baseStationName%"><br>
@@ -23,16 +23,25 @@
       <input type="text" id="countName" name="countName" value="%counterName%"><br>
       <p></p> 
 
-      <h3>Reporting Location</h3>
+      <h3><br>Counter</h3>
+      <p></p>
+      <label for="distThreshold">Distance Threshold</label>
+      <input type="text" id="distThreshold" name="distThreshold" value="%distanceThreshold%"><br>
+      <p></p>
+      <label for="smoothFactor">Smoothing Factor</label>
+      <input type="text" id="smoothFactor" name="smoothFactor" value="%smoothingFactor%"><br>
+      <p></p>
+
+      <h3><br>Reporting Location</h3>
       <p></p>
       <label for="reptLocation">Reporting Location</label>
       <input type="text" id="reptLocation" name="reptLocation" value="%reportingLocation%"><br>
       <p></p>
       <label for="password">Password</label>
-      <input type="password" id="password" name="password" value="%password%"><br>
+      <input type="text" id="password" name="password" value="%password%"><br>
       <p></p>
 
-      <h3>Shuttle Stops</h3>
+      <h3><br>Shuttle Stops</h3>
       <p></p>
       <label for="stop1">Stop 1</label>
       <input type="text" id="stop1" name="stop1" value="%stop1%"><br>
@@ -66,11 +75,17 @@
       <p></p>
   
       <br>
+      <br>
       
       <div class="center">
+          
           <input type="submit" value="Submit">
-      </div>    
-    </form>
+          
+       </div>    
+    
+       <br>
+      
+      </form>
 
 
     <hr>
