@@ -28,6 +28,7 @@
 #include <digameFile.h>       // SPIFFS file Handling
 #include <digameTime.h>       // Time functions for RTC, NTP, etc. 
 #include <digameNetwork_v2.h> // For connections, MAC Address and reporting.
+#include "credentials.h"      // Network Credentials
 #include <digameDisplay.h>    // eInk Display support.
 
 #include "BluetoothSerial.h"  // Virtual UART support for Bluetooth Classic - part of Arduino-ESP32 from Espressif 
@@ -373,14 +374,22 @@ void deliverRouteReport(){
   textToDisplay1 = "Sending...";
   textToDisplay2 = "";
 
-  // FAILURE MODE: 
-  // This is a nifty opportunity to get hung up. If we pull into the reporting 
-  // location and someone pulls the plug on the router, we'll hang here forever looking
-  // for it... TODO: Put in a timeout.
+  // Try to connect to reporting network
+  int maxRetries = 3;
+  int retries = 1;
   
-  if (WiFi.status() != WL_CONNECTED){  
-    while (!(WiFi.status() == WL_CONNECTED)){enableWiFi(networkConfig);}
+  if (WiFi.status() != WL_CONNECTED) {       
+    while ((WiFi.status() != WL_CONNECTED) && (retries < maxRetries)){
+      enableWiFi(networkConfig);
+      retries++;
+    }  
   }
+
+  if (WiFi.status() != WL_CONNECTED) { // Connection failed. Try and clean up. 
+     disableWiFi(); 
+     configureWiFi(); 
+  }
+  
 
   reportToIssue = routeReportPrefix(); 
   
@@ -405,19 +414,22 @@ void deliverRouteReport(){
   DEBUG_PRINTLN("***REPORT***");
   DEBUG_PRINTLN(reportToIssue);
 
-
-
   // Check if we've previously saved a report to SPIFFs because of some problem. 
   // I'd like to use the SD but currently (4/3/23) having issues using the SD and 
   // bluetooth classic at the same time.
 
-  
   if (SPIFFS.exists("/report.txt")){
      DEBUG_PRINTLN("Old file exists. Try to POST to server...");
 
      String previousReport = readFile(SPIFFS, "/report.txt");
-     postSuccessful = postJSON(previousReport, networkConfig);
- 
+
+     if (WiFi.status() != WL_CONNECTED){
+        DEBUG_PRINTLN("Trouble connecting to reporting location...");
+        postSuccessful = false; 
+     } else {
+        postSuccessful = postJSON(previousReport, networkConfig);
+     }
+     
      if (postSuccessful){
        DEBUG_PRINTLN("POST successful. Deleting backup.");
        deleteFile(SPIFFS, "/report.txt");  
@@ -427,7 +439,12 @@ void deliverRouteReport(){
      }               
   }
  
-  postSuccessful = postJSON(reportToIssue, networkConfig);
+  if (WiFi.status() != WL_CONNECTED){
+      DEBUG_PRINTLN("Trouble connecting to reporting location...");
+      postSuccessful = false; 
+  } else { 
+      postSuccessful = postJSON(reportToIssue, networkConfig);
+  }
 
   if (postSuccessful) {
     DEBUG_PRINTLN("Success!");
@@ -524,7 +541,9 @@ void loadParameters()
     
     networkConfig.ssid      = reportingLocation;
     networkConfig.password  = reportingLocationPassword;
-    networkConfig.serverURL = "http://199.21.201.53/trailwaze/zion/lidar_shuttle_import.php";
+    
+    //networkConfig.serverURL = "http://199.21.201.53/trailwaze/zion/lidar_shuttle_import.php";
+    networkConfig.serverURL = "http://192.168.4.1/post"; //Testing
     
     DEBUG_PRINTLN("    Shuttle Stops:      ");
     for (int i=0; i<doc["knownLocations"].size(); i++){
