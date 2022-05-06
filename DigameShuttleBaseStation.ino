@@ -221,7 +221,7 @@ void setup(){
 //****************************************************************************************
 unsigned int t1=-600000,t2=t1;
 unsigned int t3=0,t4=t3;
-unsigned int networkScanInterval = 15000;
+unsigned int networkScanInterval = 10000;
 unsigned int counterPollingInterval = 1000;
 bool reboot = false; 
 
@@ -799,7 +799,7 @@ String scanForKnownLocations(String knownLocations[], int arraySize){
   
   String retValue = "En Route"; //\n   " + String(strTime);
 
-  for (int attempts = 1; attempts < 2; attempts++){ // scan for known networks up to n times...
+  for (int attempts = 1; attempts < 3; attempts++){ // scan for known networks up to n times...
     DEBUG_PRINTLN("  Scanning WiFi... Attempt = " + String(attempts));
     
     // WiFi.scanNetworks will return the number of networks found
