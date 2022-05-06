@@ -643,8 +643,9 @@ String processor(const String& var)
 
 
 //*******************************************************************************************************
-void redirectHome(AsyncWebServerRequest* request){
-    
+void redirectHome(AsyncWebServerRequest* request)
+//*******************************************************************************************************
+{    
     saveParameters(); // Save any changes before redirecting home
     
     String RedirectUrl = "http://";
@@ -686,9 +687,9 @@ void processQueryParam(AsyncWebServerRequest *request, String qParam, String *ta
 }
 
 //****************************************************************************************
-void configureOTA(){
+void configureOTA()
 //****************************************************************************************
-
+{
   DEBUG_PRINTLN("  Stand-Alone Mode. Setting AP (Access Point)…");  
   WiFi.mode(WIFI_AP);
   String netName = "BaseStation_" + getShortMACAddress();
