@@ -7,7 +7,7 @@
     desigated as the "reportLocation".
 
     As the bus travels its route, WiFi SSIDs are used to track location. If 
-    events are logged at an unknown location a pseudo location starting with 'UN' 
+    events are logged at an unknown location a pseudo location, "En Route"
     is created.
     
     Written for the ESP32 WROOM Dev board V4 
@@ -15,8 +15,16 @@
     
     https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/hw-reference/esp32c3/user-guide-devkitc-02.html
 
-    Copyright 2021, Digame Systems. All rights reserved.
+    Copyright 2022, Digame Systems. All rights reserved.
 */
+
+#define TESTING 
+#ifdef TESTING
+  String operatingMode = "TEST";
+#else
+  String operatingMode = "NORMAL OPERATION";
+#endif
+
 #define SW_VERSION "1.0.0"
 #define INBOUND  0  // The direction of counter events
 #define OUTBOUND 1
@@ -28,25 +36,15 @@
 #include <digameFile.h>       // SPIFFS file Handling
 #include <digameTime.h>       // Time functions for RTC, NTP, etc. 
 #include <digameNetwork_v2.h> // For connections, MAC Address and reporting.
-#include "credentials.h"      // Network Credentials
 #include <digameDisplay.h>    // eInk Display support.
+#include "credentials.h"      // Network Credentials
+#include "spinner.h"          // Old-School DOS 'working' UI element
 
-#include "BluetoothSerial.h"  // Virtual UART support for Bluetooth Classic - part of Arduino-ESP32 from Espressif 
-#include <WiFi.h>           
+#include "BluetoothSerial.h"  // Virtual UART support for Bluetooth Classic - part of Arduino-ESP32 from Espressif           
 #include <ArduinoJson.h>      // Nifty JSON library
 #include <CircularBuffer.h>   // Adafruit library for handling circular buffers of data. 
 
-#include <SPI.h> // SPI bus functions to talk to the SD Card
-#include <SD.h>  // SD file handling
-
-#define ADAFRUIT_EINK_SD true // Some Adafruit Eink Displays have an integrated SD card so we don't need a separate module
-#if ADAFRUIT_EINK_SD
-#define SD_CS 14 // SD card chip select
-#else
-#define SD_CS 4
-#endif
-
-// For Over the Air (OTA) updates... 
+// For Web Server and Over the Air (OTA) updates... 
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncElegantOTA.h>
@@ -54,19 +52,20 @@
 bool useOTA = false; 
 
 //****************************************************************************************
-//****************************************************************************************                        
-// Create AsyncWebServer object on port 80
-AsyncWebServer server(80);
+//****************************************************************************************      
+                  
+AsyncWebServer server(80); // Create AsyncWebServer object on port 80
 
 const int samples = 100;
-
-CircularBuffer<String *, samples> shuttleStops; // A buffer containing pointers to JSON messages to be 
-                                                // sent to the LoRa basestation or server.
+CircularBuffer<String *, samples> shuttleStops; // A buffer containing pointers to JSON 
+                                                // messages to be sent to the server.
 
 NetworkConfig networkConfig; // See digameNetwork_v2.h for structure definition.
 
 BluetoothSerial btUART1; // Create a BlueTooth Serial port to talk to the counter
-BluetoothSerial btUART2; // Create a BlueTooth Serial port to talk to the counter
+BluetoothSerial btUART2; 
+
+
 
 struct ShuttleStop { 
   String location       = "UK";  
@@ -79,12 +78,14 @@ struct ShuttleStop {
 
 ShuttleStop currentShuttleStop;
 
-String routeName   = "Route Name";
-String shuttleName = "Shuttle Name";
 
+String routeName                 = "Route Name";
+String shuttleName               = "Shuttle Name";
+String counterNames[]            = {"Counter_1234", "Counter_2345"}; 
+String counterDistanceThreshold  = "150";
+String counterSmoothingFactor    = "0.6";
 String reportingLocation         = "ReportingSSID";
 String reportingLocationPassword = "ReportingPW";
-
 String knownLocations[] = {"Stop 1", 
                            "Stop 2", 
                            "Stop 3",
@@ -97,13 +98,6 @@ String knownLocations[] = {"Stop 1",
                            "Stop 10",
                            "Stop 11"};
 
-String counterNames[]     = {"Counter_1234", "Counter_2345"}; 
-
-uint8_t counter1Address[] = {0xAC,0x0B,0xFB,0x25,0xC6,0x12};
-uint8_t counter2Address[] = {0xE8,0x68,0xE7,0x30,0xAA,0x0E};
-
-String counterDistanceThreshold = "150";
-String counterSmoothingFactor = "0.6";
 
 String currentLocation  = "En Route"; 
 String previousLocation = "";
@@ -122,6 +116,11 @@ bool displayUpdateNeeded = false;
 
 // Utility Function: Number of items in an array
 #define NUMITEMS(arg) ((unsigned int) (sizeof (arg) / sizeof (arg [0])))
+
+
+//****************************************************************************************
+// Declares
+//****************************************************************************************      
 
 // WiFi
 String scanForKnownLocations(String knownLocations[], int arraySize);
@@ -149,7 +148,6 @@ bool initSDCard();
 // Bluetooth Counter Communication
 bool   startCounterBluetooth(BluetoothSerial &btUART, String counter); //Turns on Bluetooth Serial and connects to counter
 bool   stopCounterBluetooth(BluetoothSerial &btUART);  //Diconnects from counter and turns off Bluetooth Serial
-
 bool   connectToCounter(BluetoothSerial &btUART, String counter);
 bool   connectToCounterAddr(BluetoothSerial &btUART, uint8_t counterAddr[]);
 String sendReceive(BluetoothSerial &btUART, String stringToSend, int counterID);
@@ -191,11 +189,11 @@ void setup(){
   if (useOTA){
     configureOTA();
   } else {
-     // Setup our counter.
-    startCounterBluetooth(btUART1,counterNames[0]);
+
     resetShuttleStop(currentShuttleStop);
     
     DEBUG_PRINTLN("  Configuring Counter...");
+    startCounterBluetooth(btUART1,counterNames[0]);
     sendReceive(btUART1, "-",0); // Turn off the menu system  
     sendReceive(btUART1, "n",0); // Set the counter's name
     sendReceive(btUART1, counterNames[0],0); // Set the counter's name  
@@ -304,7 +302,11 @@ bool countsChanged (ShuttleStop shuttleStop) // Have the shuttleStop's counters 
   
 }
 
-  bool displayTextChanged(String displayText){
+  
+//****************************************************************************************
+bool displayTextChanged(String displayText)
+//****************************************************************************************
+{
   static String oldText = "";
   bool retVal = false;
   
@@ -314,25 +316,6 @@ bool countsChanged (ShuttleStop shuttleStop) // Have the shuttleStop's counters 
   }  
 
   return retVal;  
-}
-
-
-//****************************************************************************************
-// An "Old-School" UI Element from my DOS days! 
-//****************************************************************************************
-String rotateSpinner(){
-  static String spinner = "|";
-  //OLD SCHOOL! :)
-  if (spinner == "|") {
-    spinner = "/";
-  } else if (spinner == "/") {
-    spinner = "-";
-  } else if (spinner == "-") {
-    spinner = "\\";
-  } else { 
-    spinner = "|";
-  }
-  return spinner;
 }
 
 //****************************************************************************************
@@ -541,9 +524,16 @@ void loadParameters()
     
     networkConfig.ssid      = reportingLocation;
     networkConfig.password  = reportingLocationPassword;
-    
-    //networkConfig.serverURL = "http://199.21.201.53/trailwaze/zion/lidar_shuttle_import.php";
-    networkConfig.serverURL = "http://192.168.4.1/post"; //Testing
+
+    #ifdef TESTING
+      networkConfig.ssid      = testNetSSID;  // See credentials.h
+      networkConfig.password  = testNetPassword;
+      networkConfig.serverURL = testServerURL; 
+    #else
+      networkConfig.ssid      = reportingLocation;
+      networkConfig.password  = reportingLocationPassword;
+      networkConfig.serverURL = serverURL; // see credentials.h
+    #endif
     
     DEBUG_PRINTLN("    Shuttle Stops:      ");
     for (int i=0; i<doc["knownLocations"].size(); i++){
@@ -623,49 +613,10 @@ void saveParameters()
   file.close();
 }
 
-
-//****************************************************************************************
-// See if the card is present and can be initialized.
-//****************************************************************************************
-bool initSDCard()
-{
-
-  Serial.println("  Initializing SD Card at address: ");
-  Serial.print(SD_CS);
-
-  
-  if(!SD.begin(SD_CS)){
-    Serial.println("    Card Mount Failed");
-    return false;
-  }
-  uint8_t cardType = SD.cardType();
-
-  if(cardType == CARD_NONE){
-    Serial.println("    No SD card attached");
-    return false;
-  }
-
-  Serial.print("    SD Card Type: ");
-  if(cardType == CARD_MMC){
-    Serial.println("MMC");
-  } else if(cardType == CARD_SD){
-    Serial.println("SDSC");
-  } else if(cardType == CARD_SDHC){
-    Serial.println("SDHC");
-  } else {
-    Serial.println("UNKNOWN");
-  }
-  uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-  Serial.printf("    SD Card Size: %lluMB\n", cardSize);
-  return true;
-
-}
-
 //***************************************************************************************
 String processor(const String& var)
 //***************************************************************************************
 {
-
   if(var == "config.deviceName") return F(shuttleName.c_str()); 
   if(var == "baseStationName") return F(shuttleName.c_str()); 
   
@@ -706,8 +657,11 @@ void redirectHome(AsyncWebServerRequest* request){
     request->redirect(RedirectUrl);
 }
 
+
 //*******************************************************************************************************
-void processQueryParam(AsyncWebServerRequest *request, String qParam, String *targetParam){
+void processQueryParam(AsyncWebServerRequest *request, String qParam, String *targetParam)
+//*******************************************************************************************************
+{
     //debugUART.println(qParam);
     if(request->hasParam(qParam)){
       //debugUART.println("found");
@@ -797,6 +751,8 @@ void showSplashScreen(){
   DEBUG_PRINTLN("Copyright 2022, Digame Systems. All rights reserved.");
   DEBUG_PRINTLN();
   DEBUG_PRINTLN("*****************************************************");  
+  DEBUG_PRINTLN();
+  DEBUG_PRINTLN("Operating Mode: " + operatingMode);
   DEBUG_PRINTLN();
   DEBUG_PRINTLN("HARDWARE INITIALIZATION");
   DEBUG_PRINTLN();  
@@ -1060,24 +1016,6 @@ bool connectToCounter(BluetoothSerial &btUART, String counter){
 }
 
 
-bool connectToCounterAddr(BluetoothSerial &btUART, uint8_t counterAddr[] ){ 
-// Comment from the library author: 
-// connect(address) is fast (upto 10 secs max), connect(name) is slow (upto 30 secs max) as it needs
-// to resolve name to address first, but it allows to connect to different devices with the same name.
-// Set CoreDebugLevel to Info to view devices bluetooth address and device names
-  
-  DEBUG_PRINT("Connecting to address...");
-  bool connected = btUART.connect(counterAddr);
-  
-  if(connected) {
-    DEBUG_PRINTLN(" Success!");
-  } else {
-    DEBUG_PRINTLN(" Failed to connect."); 
-  } 
-
-  return connected; 
-}
-
 String sendReceive(BluetoothSerial &btUART, String stringToSend, int counterID){
   unsigned int timeout = 2000;
   bool timedOut = false; 
@@ -1096,21 +1034,8 @@ String sendReceive(BluetoothSerial &btUART, String stringToSend, int counterID){
     
     // Give ourselves a couple attempts to make a connection. 
     while ((retries<maxRetries)&&(!(btConnected))){
-      DEBUG_PRINTLN("TRY: " + String(retries));
-  
-      //Lookup by name
+      DEBUG_PRINTLN("Connect Attempt: " + String(retries+1));
       btConnected = startCounterBluetooth(btUART, counterNames[counterID]);
-      //btConnected = connectToCounter(btUART, counterNames[counterID]);
-  
-      //Lookup by addr (seems less reliable for some reason...)
-      /*
-      if (counterID == SHUTTLE){
-        btConnected = connectToCounterAddr(btUART, counter1Address);
-      } else if (counterID == TRAILER){
-        btConnected = connectToCounterAddr(btUART, counter2Address);
-      }
-
-      */
       retries++;
     }
   }
