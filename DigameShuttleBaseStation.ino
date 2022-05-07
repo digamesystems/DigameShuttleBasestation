@@ -254,7 +254,7 @@ void loop(){
     }
   
     if (currentLocation != previousLocation){ // We've moved
-      DEBUG_PRINTLN("New Location!");
+      //DEBUG_PRINTLN("New Location!");
       
       String counterStats = sendReceive(btUART1, "g",0); // Get the current count
       if (counterStats !="") updateShuttleStop(currentShuttleStop, counterStats, 0);
@@ -272,6 +272,7 @@ void loop(){
     if ((t4-t3) > counterPollingInterval){
       String counterStats = sendReceive(btUART1, "g", 0);
       if (counterStats !="") updateShuttleStop(currentShuttleStop, counterStats, 0);
+      DEBUG_PRINTLN(String("  In  ") + currentShuttleStop.counterEvents[0][0] + " Out  " + currentShuttleStop.counterEvents[0][1]);
       t3 = millis();   
     }
         
@@ -344,36 +345,35 @@ void eInkManager(void *parameter){
     
   }
 }
-    
+
 
 
 //****************************************************************************************
-void deliverRouteReport(){
+// Check for connection and if not connected, try to connect to network
 //****************************************************************************************
-  String reportToIssue; 
-  bool postSuccessful = false;
-
-  titleToDisplay = "Rept'g Hub";
-  textToDisplay1 = "Sending...";
-  textToDisplay2 = "";
-
-  // Try to connect to reporting network
+bool wifiOK(){
+  
   int maxRetries = 3;
   int retries = 1;
   
-  if (WiFi.status() != WL_CONNECTED) {       
-    while ((WiFi.status() != WL_CONNECTED) && (retries < maxRetries)){
+  if (WiFi.status() == WL_CONNECTED) return true;
+    
+  while ((WiFi.status() != WL_CONNECTED) && (retries < maxRetries)){
       enableWiFi(networkConfig);
       retries++;
-    }  
-  }
-
-  if (WiFi.status() != WL_CONNECTED) { // Connection failed. Try and clean up. 
-     disableWiFi(); 
-     configureWiFi(); 
-  }
+  }  
   
+  if (WiFi.status() == WL_CONNECTED) return true;
+  
+  // Connection failed. Try and clean up. 
+  disableWiFi(); 
+  configureWiFi(); 
+  return false;
+}
 
+
+String buildRouteReport(){
+  String reportToIssue; 
   reportToIssue = routeReportPrefix(); 
   
   DEBUG_PRINT("Reporting... Number of Entries: ");
@@ -394,52 +394,68 @@ void deliverRouteReport(){
   }  
   reportToIssue += "]}";
   
-  DEBUG_PRINTLN("***REPORT***");
-  DEBUG_PRINTLN(reportToIssue);
+  //DEBUG_PRINTLN("***REPORT***");
+  //DEBUG_PRINTLN(reportToIssue);
+  
+  return reportToIssue;  
+}
+
+//****************************************************************************************
+void deliverRouteReport(){
+//****************************************************************************************
+  String reportToIssue; 
+  bool   postSuccessful = false;
+
+  titleToDisplay = "Rept'g Hub";
+  textToDisplay1 = "Sending...";
+  textToDisplay2 = "";
 
   // Check if we've previously saved a report to SPIFFs because of some problem. 
   // I'd like to use the SD but currently (4/3/23) having issues using the SD and 
   // bluetooth classic at the same time.
 
-  if (SPIFFS.exists("/report.txt")){
-     DEBUG_PRINTLN("Old file exists. Try to POST to server...");
-
-     String previousReport = readFile(SPIFFS, "/report.txt");
-
-     if (WiFi.status() != WL_CONNECTED){
-        DEBUG_PRINTLN("Trouble connecting to reporting location...");
-        postSuccessful = false; 
-     } else {
-        postSuccessful = postJSON(previousReport, networkConfig);
-     }
-     
-     if (postSuccessful){
-       DEBUG_PRINTLN("POST successful. Deleting backup.");
-       deleteFile(SPIFFS, "/report.txt");  
-     }else{
-       DEBUG_PRINTLN("Trouble POSTing old data. Keeping backup.");
-       //leave the file on SPIFFs 
-     }               
-  }
- 
-  if (WiFi.status() != WL_CONNECTED){
-      DEBUG_PRINTLN("Trouble connecting to reporting location...");
-      postSuccessful = false; 
-  } else { 
-      postSuccessful = postJSON(reportToIssue, networkConfig);
+  if (wifiOK()){
+    if (SPIFFS.exists("/report.txt")){
+       DEBUG_PRINTLN("Old file exists. Try to POST to server...");
+       String previousReport = readFile(SPIFFS, "/report.txt");
+       postSuccessful = postJSON(previousReport, networkConfig);     
+       if (postSuccessful){
+         DEBUG_PRINTLN("POST successful. Deleting backup.");
+         deleteFile(SPIFFS, "/report.txt");  
+       }else{
+         DEBUG_PRINTLN("Trouble POSTing old data. Keeping backup.");
+       }               
+    }
   }
 
-  if (postSuccessful) {
-    DEBUG_PRINTLN("Success!");
-    DEBUG_PRINTLN();
-  }else{
-    DEBUG_PRINTLN("POST failed. Saving to SPIFFS.");
+  // Issue the current report
+    
+  reportToIssue = buildRouteReport();
+
+  if (wifiOK()) {
+    postSuccessful = postJSON(reportToIssue, networkConfig);
+    
+    if (postSuccessful) {
+      //DEBUG_PRINTLN("Success!");
+      //DEBUG_PRINTLN();
+      titleToDisplay = "Rept'g Hub";
+      textToDisplay1 = "Data Uploaded.";
+      textToDisplay2 = "";
+    }else{
+      DEBUG_PRINTLN("POST failed. Saving to SPIFFS.");
+      titleToDisplay = "Rept'g Hub";
+      textToDisplay1 = "Upload Failed!";
+      textToDisplay2 = "";
+      writeFile(SPIFFS,"/report.txt",reportToIssue.c_str());
+    }
+  } else {
+    DEBUG_PRINTLN("No Network. Saving to SPIFFS.");
     writeFile(SPIFFS,"/report.txt",reportToIssue.c_str());
+    titleToDisplay = "Rept'g Hub";
+    textToDisplay1 = "No Connection.";
+    textToDisplay2 = "";
   }
-
-  titleToDisplay = "Rept'g Hub";
-  textToDisplay1 = "Complete.";
-  textToDisplay2 = "";
+  
   delay(2000); // Give folks a sec to read the update.
  
 }
@@ -454,14 +470,14 @@ void processLocationChange(ShuttleStop &currentShuttleStop)
   }
 
   if (currentLocation == reportingLocation){
-    DEBUG_PRINTLN("We have arrived at the reportingLocation!"); 
+    DEBUG_PRINTLN("We have arrived at the reporting location."); 
     
     stopCounterBluetooth(btUART1);
     deliverRouteReport();
     startCounterBluetooth(btUART1,counterNames[0]);
     
   } else if (previousLocation == reportingLocation){
-    DEBUG_PRINTLN("We have left the reportingLocation!");
+    //DEBUG_PRINTLN("We have left the reportingLocation!");
   } else {
     DEBUG_PRINTLN("We have changed shuttle stops!");
   }
@@ -800,7 +816,7 @@ String scanForKnownLocations(String knownLocations[], int arraySize){
   String retValue = "En Route"; //\n   " + String(strTime);
 
   for (int attempts = 1; attempts < 3; attempts++){ // scan for known networks up to n times...
-    DEBUG_PRINTLN("  Scanning WiFi... Attempt = " + String(attempts));
+    //DEBUG_PRINTLN("  Scanning WiFi... Attempt = " + String(attempts));
     
     // WiFi.scanNetworks will return the number of networks found
     int n = WiFi.scanNetworks();   
@@ -812,7 +828,7 @@ String scanForKnownLocations(String knownLocations[], int arraySize){
         // Return the first match to our known SSID list -- Return values are ordered by RSSI
         
         if (WiFi.SSID(i) == reportingLocation.c_str()){
-          DEBUG_PRINT(" At the Reporting Location: ");
+          DEBUG_PRINT("  At the Reporting Location: ");
           DEBUG_PRINTLN(reportingLocation);
           //networkScanInterval = 30000; // Longer scan interval when we are at a known location.
           return reportingLocation;  
@@ -821,7 +837,7 @@ String scanForKnownLocations(String knownLocations[], int arraySize){
         for (int j = 0; (j<arraySize); j++){
           if (WiFi.SSID(i) == knownLocations[j].c_str()){
             retValue = knownLocations[j];
-            DEBUG_PRINT(" At Known Location: ");
+            DEBUG_PRINT("  At Known Location: ");
             DEBUG_PRINTLN(retValue);
             //networkScanInterval = 30000; // Longer scan interval when we are at a know location.
             return retValue; // If we find a known network, return it and exit.
@@ -943,7 +959,7 @@ void configureEinkManagerTask(){
 
 
 bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
-  DEBUG_PRINTLN("  Starting Bluetooth");
+  //DEBUG_PRINTLN("  Starting Bluetooth");
   btUART.begin("ShuttleBasestationA", true); // Bluetooth device name 
                                             //  TODO: Provide opportunity to change names. 
   delay(100); // Give port time to initalize
@@ -977,7 +993,7 @@ bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
 }
 
 bool stopCounterBluetooth(BluetoothSerial &btUART){
-  DEBUG_PRINTLN("  Stopping Bluetooth");
+  //DEBUG_PRINTLN("  Stopping Bluetooth");
   if (btUART.connected()){ btUART.disconnect();}
   btUART.end();  
 
@@ -1076,7 +1092,7 @@ String sendReceive(BluetoothSerial &btUART, String stringToSend, int counterID){
        
       inString.trim();
       //DEBUG_PRINTLN("Reply to:  " + stringToSend);
-      DEBUG_PRINTLN("    " + getRTCTime() + " " + inString);
+      //DEBUG_PRINTLN("    " + getRTCTime() + " " + inString);
         
     }
     
