@@ -159,6 +159,7 @@ void   updateShuttleStop(ShuttleStop &shuttleStop, String jsonMessage, int count
 String getShuttleStopJSON(ShuttleStop &shuttleStop);
 void   processLocationChange(ShuttleStop &currentShuttleStop);
 
+void setEinkText(String s1, String s2, String s3);
 
 //****************************************************************************************
 // SETUP - Device initialization                                   
@@ -177,10 +178,8 @@ void setup(){
   configureDisplay();
   accessPointModeCheck();
   delay(1000); // give the human a sec to take their finger off the button.
-  
-  titleToDisplay = "Scanning";
-  textToDisplay1 = "For";
-  textToDisplay2 = "Known Locations";
+
+  setEinkText("Scanning", "For", "Known Locations");
   
   configureEinkManagerTask();
   configureRTC();
@@ -231,9 +230,7 @@ void loop(){
 
   reboot = ( digitalRead(CTR_RESET) == LOW ); // Button low at boot = AP mode
   if (reboot){
-    titleToDisplay = "Restarting";
-    textToDisplay1 = "in";
-    textToDisplay2 = "5 seconds...";
+    setEinkText("Restarting", "In ", "5 seconds...");
     delay(3000);
     ESP.restart();
   }
@@ -406,9 +403,7 @@ void deliverRouteReport(){
   String reportToIssue; 
   bool   postSuccessful = false;
 
-  titleToDisplay = "Rept'g Hub";
-  textToDisplay1 = "Sending...";
-  textToDisplay2 = "";
+  setEinkText("Rept'g Hub", "Sending...", "");
 
   // Check if we've previously saved a report to SPIFFs because of some problem. 
   // I'd like to use the SD but currently (4/3/23) having issues using the SD and 
@@ -436,27 +431,21 @@ void deliverRouteReport(){
     postSuccessful = postJSON(reportToIssue, networkConfig);
     
     if (postSuccessful) {
-      //DEBUG_PRINTLN("Success!");
-      //DEBUG_PRINTLN();
-      titleToDisplay = "Rept'g Hub";
-      textToDisplay1 = "Data Uploaded.";
-      textToDisplay2 = "";
+      setEinkText("Rept'g Hub", "Data Uploaded.", "");
+
     }else{
       DEBUG_PRINTLN("POST failed. Saving to SPIFFS.");
-      titleToDisplay = "Rept'g Hub";
-      textToDisplay1 = "Upload Failed!";
-      textToDisplay2 = "";
+      setEinkText("Rept'g Hub", "Upload Failed!", "");
       writeFile(SPIFFS,"/report.txt",reportToIssue.c_str());
     }
   } else {
     DEBUG_PRINTLN("No Network. Saving to SPIFFS.");
     writeFile(SPIFFS,"/report.txt",reportToIssue.c_str());
-    titleToDisplay = "Rept'g Hub";
-    textToDisplay1 = "No Connection.";
-    textToDisplay2 = "";
+    setEinkText("Rept'g Hub", "No Connection.", "");
+
   }
   
-  delay(2000); // Give folks a sec to read the update.
+  delay(2000); // Give folks a chance to read the update.
  
 }
 
@@ -716,9 +705,8 @@ void configureOTA()
   DEBUG_PRINT("    AP IP address: ");
   DEBUG_PRINTLN(IP);   
 
-  titleToDisplay = "Acc. Point";
-  textToDisplay1 = "BaseStation_" + getShortMACAddress();
-  textToDisplay2 = WiFi.softAPIP().toString();;
+  setEinkText("Acc. Point", "BaseStation_"+ getShortMACAddress(), WiFi.softAPIP().toString());
+
  
   //delay(3000);  
   
@@ -958,6 +946,14 @@ void configureEinkManagerTask(){
 }
 
 
+
+void setEinkText(String s1, String s2, String s3){
+  titleToDisplay= s1;
+  textToDisplay1 = s2;
+  textToDisplay2 = s3;
+}
+
+
 bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
   //DEBUG_PRINTLN("  Starting Bluetooth");
   btUART.begin("ShuttleBasestationA", true); // Bluetooth device name 
@@ -980,9 +976,7 @@ bool startCounterBluetooth(BluetoothSerial &btUART, String counter){
 
   } else {
     DEBUG_PRINTLN("    Failed to connect."); 
-    titleToDisplay = "CONNECT";
-    textToDisplay1 = "Failed!";
-    textToDisplay2 = "";
+    setEinkText("CONNECT","Failed!","");
 
     delay(2000);
     //displayTextScreen("CONNECT",  "\n       FAILED!");
@@ -1006,27 +1000,19 @@ bool connectToCounter(BluetoothSerial &btUART, String counter){
 // to resolve name to address first, but it allows to connect to different devices with the same name.
 // Set CoreDebugLevel to Info to view devices bluetooth address and device names
 
-  //initDisplay();
-  titleToDisplay= "Connecting";
-  textToDisplay1 = " Connecting to:";
-  textToDisplay2 = counter;
+  setEinkText("Connecting", "Connecting To", counter);
  
   bool connected = btUART.connect(counter);
   
   if(connected) {
     DEBUG_PRINTLN(" Success! Awaiting Counts...");
-    titleToDisplay = "Connected";
-    textToDisplay1 = "Awaiting counts"; 
-    textToDisplay2 = "...";
+    setEinkText("Success!", "Awaiting Counts...", "");
+ 
 
   } else {
     DEBUG_PRINTLN(" Failed to connect."); 
-    titleToDisplay = "CONNECT";
-    textToDisplay1 = "Failed!";
-    textToDisplay2 = "";
-
+    setEinkText("Connect", "Failed!", "");
     delay(2000);
-    //displayTextScreen("CONNECT",  "\n       FAILED!");
   } 
 
   return connected; 
