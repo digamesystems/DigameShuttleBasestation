@@ -159,7 +159,8 @@ void   updateShuttleStop(ShuttleStop &shuttleStop, String jsonMessage, int count
 String getShuttleStopJSON(ShuttleStop &shuttleStop);
 void   processLocationChange(ShuttleStop &currentShuttleStop);
 
-void setEinkText(String s1, String s2, String s3);
+//
+void   setEinkText(String s1, String s2, String s3);
 
 //****************************************************************************************
 // SETUP - Device initialization                                   
@@ -1148,12 +1149,14 @@ String getShuttleStopJSON(ShuttleStop &shuttleStop){
   shuttleStopJSON["location"]                          = shuttleStop.location;
   shuttleStopJSON["startTime"]                         = shuttleStop.startTime;
   shuttleStopJSON["endTime"]                           = shuttleStop.endTime;
-  shuttleStopJSON["sensors"]["shuttle"]["macAddress"]  = shuttleStop.counterMACAddresses[SHUTTLE];
-  shuttleStopJSON["sensors"]["shuttle"]["inbound"]     = shuttleStop.counterEvents[SHUTTLE][INBOUND];
-  shuttleStopJSON["sensors"]["shuttle"]["outbound"]    = shuttleStop.counterEvents[SHUTTLE][OUTBOUND];
+  shuttleStopJSON["sensors"]["counter"]["macAddress"]  = shuttleStop.counterMACAddresses[SHUTTLE];
+  shuttleStopJSON["sensors"]["counter"]["inbound"]     = shuttleStop.counterEvents[SHUTTLE][INBOUND];
+  shuttleStopJSON["sensors"]["counter"]["outbound"]    = shuttleStop.counterEvents[SHUTTLE][OUTBOUND];
+  /*
   shuttleStopJSON["sensors"]["trailer"]["macAddress"]  = shuttleStop.counterMACAddresses[TRAILER];
   shuttleStopJSON["sensors"]["trailer"]["inbound"]     = shuttleStop.counterEvents[TRAILER][INBOUND];
   shuttleStopJSON["sensors"]["trailer"]["outbound"]    = shuttleStop.counterEvents[TRAILER][OUTBOUND];
+*/
 
   //Serial.print("Base Station State: ");
   String retValue; 
