@@ -18,7 +18,7 @@
     Copyright 2022, Digame Systems. All rights reserved.
 */
 
-#define TESTING 
+//#define TESTING 
 #ifdef TESTING
   String operatingMode = "TEST";
 #else
@@ -36,6 +36,7 @@
 #include <digameFile.h>       // SPIFFS file Handling
 #include <digameTime.h>       // Time functions for RTC, NTP, etc. 
 #include <digameNetwork_v2.h> // For connections, MAC Address and reporting.
+//#include <digameNetwork.h> // For connections, MAC Address and reporting.
 #include <digameDisplay.h>    // eInk Display support.
 #include "credentials.h"      // Network Credentials
 #include "spinner.h"          // Old-School DOS 'working' UI element
@@ -59,6 +60,7 @@ AsyncWebServer server(80); // Create AsyncWebServer object on port 80
 const int samples = 100;
 CircularBuffer<String *, samples> shuttleStops; // A buffer containing pointers to JSON 
                                                 // messages to be sent to the server.
+
 
 NetworkConfig networkConfig; // See digameNetwork_v2.h for structure definition.
 
@@ -527,9 +529,6 @@ void loadParameters()
     DEBUG_PRINTLN("    CTR Dist Thresh:    " + counterDistanceThreshold);
     DEBUG_PRINTLN("    CTR Smooth Factr:   " + counterSmoothingFactor);
     DEBUG_PRINTLN("    Reporting Location: " + reportingLocation);
-    
-    networkConfig.ssid      = reportingLocation;
-    networkConfig.password  = reportingLocationPassword;
 
     #ifdef TESTING
       networkConfig.ssid      = testNetSSID;  // See credentials.h
@@ -1149,14 +1148,21 @@ String getShuttleStopJSON(ShuttleStop &shuttleStop){
   shuttleStopJSON["location"]                          = shuttleStop.location;
   shuttleStopJSON["startTime"]                         = shuttleStop.startTime;
   shuttleStopJSON["endTime"]                           = shuttleStop.endTime;
+  
   shuttleStopJSON["sensors"]["counter"]["macAddress"]  = shuttleStop.counterMACAddresses[SHUTTLE];
   shuttleStopJSON["sensors"]["counter"]["inbound"]     = shuttleStop.counterEvents[SHUTTLE][INBOUND];
   shuttleStopJSON["sensors"]["counter"]["outbound"]    = shuttleStop.counterEvents[SHUTTLE][OUTBOUND];
+    
+
   /*
+  shuttleStopJSON["sensors"]["shuttle"]["macAddress"]  = shuttleStop.counterMACAddresses[SHUTTLE];
+  shuttleStopJSON["sensors"]["shuttle"]["inbound"]     = shuttleStop.counterEvents[SHUTTLE][INBOUND];
+  shuttleStopJSON["sensors"]["shuttle"]["outbound"]    = shuttleStop.counterEvents[SHUTTLE][OUTBOUND];
+
   shuttleStopJSON["sensors"]["trailer"]["macAddress"]  = shuttleStop.counterMACAddresses[TRAILER];
   shuttleStopJSON["sensors"]["trailer"]["inbound"]     = shuttleStop.counterEvents[TRAILER][INBOUND];
   shuttleStopJSON["sensors"]["trailer"]["outbound"]    = shuttleStop.counterEvents[TRAILER][OUTBOUND];
-*/
+  */
 
   //Serial.print("Base Station State: ");
   String retValue; 
@@ -1186,5 +1192,7 @@ String routeReportPrefix(){
 void pushShuttleStop(ShuttleStop &shuttleStop){
   String shuttleStopJSON = getShuttleStopJSON(shuttleStop);  
   String * msgPtr = new String(shuttleStopJSON);
+  DEBUG_PRINTLN(String("  In  ") + shuttleStop.counterEvents[0][0] + " Out  " + shuttleStop.counterEvents[0][1]);
+  DEBUG_PRINTLN("  -------------");        
   shuttleStops.push(msgPtr);
 }
