@@ -25,7 +25,7 @@
   String operatingMode = "NORMAL OPERATION";
 #endif
 
-#define SW_VERSION "1.0.0"
+#define SW_VERSION "1.0.1"
 #define INBOUND  0  // The direction of counter events
 #define OUTBOUND 1
 #define NUM_COUNTERS 2
@@ -188,6 +188,7 @@ void setup(){
   configureRTC();
   configureWiFi();
 
+  
   if (useOTA){
     configureOTA();
   } else {
@@ -804,7 +805,7 @@ String scanForKnownLocations(String knownLocations[], int arraySize){
   String retValue = "En Route"; //\n   " + String(strTime);
 
   for (int attempts = 1; attempts < 3; attempts++){ // scan for known networks up to n times...
-    //DEBUG_PRINTLN("  Scanning WiFi... Attempt = " + String(attempts));
+    DEBUG_PRINTLN("  Scanning WiFi... Attempt = " + String(attempts));
     
     // WiFi.scanNetworks will return the number of networks found
     int n = WiFi.scanNetworks();   
@@ -827,13 +828,19 @@ String scanForKnownLocations(String knownLocations[], int arraySize){
             retValue = knownLocations[j];
             DEBUG_PRINT("  At Known Location: ");
             DEBUG_PRINTLN(retValue);
-            //networkScanInterval = 30000; // Longer scan interval when we are at a know location.
+            //networkScanInterval = 30000; // Longer scan interval when we are at a known location.
             return retValue; // If we find a known network, return it and exit.
           }
         }       
       }
     }
   }
+  
+  DEBUG_PRINTLN("  No known networks found. Check for hidden Reporting Location...");
+  bool wfOK = enableWiFi(networkConfig); // Testing. 
+  //DEBUG_PRINTLN(wfOK);
+  if (wfOK) {return reportingLocation;}
+  
   DEBUG_PRINTLN("  No known networks found. (En Route)");
   networkScanInterval = 10000; // Short Scan time when we are not at a known location.
   return retValue; // Return the "unknown" location
